@@ -1,0 +1,40 @@
+[package]
+name = "fabctl"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fabctl"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4.4", features = ["derive", "cargo"] }
+colored = "2.1"
+comfy-table = "7.1"
+
+# Kubernetes
+kube = { version = "0.87", features = ["derive"] }
+k8s-openapi = { version = "0.20", features = ["v1_28"] }
+
+# Async
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Utilities
+chrono = "0.4"
+indicatif = "0.17"
+
+# Local dependency
+operator = { path = "../operator" }

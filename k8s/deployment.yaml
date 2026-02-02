@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabgitops-operator
+  namespace: default
+  labels:
+    app: fabgitops-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fabgitops-operator
+  template:
+    metadata:
+      labels:
+        app: fabgitops-operator
+    spec:
+      serviceAccountName: fabgitops-operator
+      containers:
+        - name: operator
+          image: ghcr.io/yourusername/fabgitops-operator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          env:
+            - name: RUST_LOG
+              value: info
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fabgitops-operator-metrics
+  namespace: default
+  labels:
+    app: fabgitops-operator
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app: fabgitops-operator

@@ -1,0 +1,68 @@
+{{- if .Values.serviceAccount.create -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "fabgitops.serviceAccountName" . }}
+  labels:
+    {{- include "fabgitops.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "fabgitops.fullname" . }}
+  labels:
+    {{- include "fabgitops.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - fabgitops.io
+    resources:
+      - industrialplcs
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - fabgitops.io
+    resources:
+      - industrialplcs/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups:
+      - fabgitops.io
+    resources:
+      - industrialplcs/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "fabgitops.fullname" . }}
+  labels:
+    {{- include "fabgitops.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "fabgitops.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "fabgitops.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

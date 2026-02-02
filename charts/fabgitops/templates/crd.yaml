@@ -1,0 +1,86 @@
+{{- if .Values.crd.create }}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: industrialplcs.fabgitops.io
+  labels:
+    {{- include "fabgitops.labels" . | nindent 4 }}
+spec:
+  group: fabgitops.io
+  names:
+    kind: IndustrialPLC
+    plural: industrialplcs
+    shortNames:
+      - plc
+    singular: industrialplc
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                deviceAddress:
+                  type: string
+                  description: "IP address or hostname of the PLC device"
+                port:
+                  type: integer
+                  default: 502
+                  description: "Modbus TCP port"
+                targetRegister:
+                  type: integer
+                  description: "Register address to monitor/correct"
+                targetValue:
+                  type: integer
+                  description: "Desired value for the register"
+                pollIntervalSecs:
+                  type: integer
+                  default: 5
+                  description: "How often to poll the PLC (seconds)"
+                autoCorrect:
+                  type: boolean
+                  default: true
+                  description: "Automatically correct drift when detected"
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  description: "Optional tags for the PLC"
+              required:
+                - deviceAddress
+                - targetRegister
+                - targetValue
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Connecting
+                    - Connected
+                    - DriftDetected
+                    - Correcting
+                    - Failed
+                lastUpdate:
+                  type: string
+                currentValue:
+                  type: integer
+                inSync:
+                  type: boolean
+                driftEvents:
+                  type: integer
+                correctionsApplied:
+                  type: integer
+                lastError:
+                  type: string
+                message:
+                  type: string
+      subresources:
+        status: {}
+{{- end }}

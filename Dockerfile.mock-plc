@@ -1,0 +1,44 @@
+# Build stage
+FROM rust:1.75-slim-bookworm AS builder
+
+WORKDIR /build
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace configuration
+COPY Cargo.toml ./
+COPY crates/mock-plc/Cargo.toml ./crates/mock-plc/
+COPY crates/mock-plc/src ./crates/mock-plc/src/
+
+# Build the mock-plc
+RUN cargo build --release -p mock-plc
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 -s /bin/bash mockplc
+
+# Copy binary from builder
+COPY --from=builder /build/target/release/mock-plc /usr/local/bin/mock-plc
+
+# Set ownership
+RUN chown mockplc:mockplc /usr/local/bin/mock-plc
+
+# Switch to non-root user
+USER mockplc
+
+# Expose Modbus TCP port
+EXPOSE 5502
+
+# Run the mock PLC
+ENTRYPOINT ["/usr/local/bin/mock-plc"]
