@@ -4,7 +4,7 @@
 > A Kubernetes Operator for managing Industrial PLCs with GitOps principles
 
 [![CI/CD](https://github.com/yourusername/fabgitops/actions/workflows/ci.yaml/badge.svg)](https://github.com/yourusername/fabgitops/actions/workflows/ci.yaml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
 
