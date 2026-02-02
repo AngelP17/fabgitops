@@ -14,7 +14,7 @@ scrape_configs:
 
   - job_name: 'fabgitops-operator'
     static_configs:
-      - targets: ['host.docker.internal:8080']
+      - targets: ['192.168.102.103:8081']
     metrics_path: /metrics
     scrape_interval: 5s
     scrape_timeout: 3s

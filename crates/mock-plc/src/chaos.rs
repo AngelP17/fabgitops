@@ -35,42 +35,42 @@ impl ChaosEngine {
             running: Arc::new(AtomicBool::new(false)),
         }
     }
-    
+
     /// Start the chaos engine in background
     pub fn spawn(&self, register_value: Arc<std::sync::Mutex<u16>>) {
         if !self.config.enabled {
             info!("Chaos mode disabled");
             return;
         }
-        
+
         let running = self.running.clone();
         let interval_secs = self.config.interval_secs;
         let max_drift = self.config.max_drift;
-        
+
         running.store(true, Ordering::SeqCst);
-        
+
         // Spawn a blocking task for the RNG since ThreadRng is not Send
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async move {
                 let mut ticker = interval(Duration::from_secs(interval_secs));
                 let mut rng = rand::thread_rng();
-                
+
                 info!(
                     "🌀 CHAOS MODE ACTIVATED! Drifting every {}s (max drift: {})",
                     interval_secs, max_drift
                 );
-                
+
                 while running.load(Ordering::SeqCst) {
                     ticker.tick().await;
-                    
+
                     let drift: i16 = rng.gen_range(-(max_drift as i16)..=max_drift as i16);
-                    
+
                     if let Ok(mut value) = register_value.lock() {
                         let old_value = *value;
                         let new_value = (*value as i16 + drift).clamp(0, i16::MAX) as u16;
                         *value = new_value;
-                        
+
                         warn!(
                             "🌀 CHAOS DRIFT! Register changed: {} → {} (drift: {})",
                             old_value, new_value, drift
@@ -80,7 +80,8 @@ impl ChaosEngine {
             });
         });
     }
-    
+
+    #[allow(dead_code)]
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
         info!("Chaos mode stopped");

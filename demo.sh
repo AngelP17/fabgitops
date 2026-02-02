@@ -91,24 +91,28 @@ start_observability() {
     print_success "Grafana available at: http://localhost:3000 (admin/fabgitops)"
 }
 
-# Start mock PLC with chaos mode
+# Build and load mock-plc image into Kind
 start_mock_plc() {
-    print_step "Starting Mock PLC with Chaos Mode..."
-    
-    # Kill any existing mock-plc process
+    print_step "Building and deploying Mock PLC into Kind cluster..."
+
+    # Kill any existing local mock-plc process
     pkill -f mock-plc 2>/dev/null || true
-    
-    # Start mock-plc in background with chaos mode
-    ./target/release/mock-plc --chaos --chaos-interval 10 --value 2500 &
-    MOCK_PID=$!
-    
-    print_info "Mock PLC started with PID: $MOCK_PID"
-    print_info "The PLC will drift randomly every 10 seconds"
-    
-    # Store PID for cleanup
-    echo $MOCK_PID > /tmp/mock-plc.pid
-    
-    sleep 2
+
+    # Build mock-plc Docker image
+    print_info "Building mock-plc Docker image..."
+    docker build -t fabgitops-mock-plc:latest -f Dockerfile.mock-plc .
+
+    # Load image into Kind cluster
+    print_info "Loading mock-plc image into Kind cluster..."
+    /tmp/kind load docker-image fabgitops-mock-plc:latest --name fabgitops
+
+    # Deploy mock-plc into the cluster
+    kubectl apply -f k8s/mock-plc.yaml
+
+    print_info "Waiting for mock-plc to be ready..."
+    kubectl rollout status deployment/mock-plc --timeout=120s
+
+    print_success "Mock PLC deployed in-cluster (chaos mode, drifting every 10s)"
 }
 
 # Deploy operator to Kubernetes
@@ -195,18 +199,13 @@ show_grafana_info() {
 cleanup() {
     print_step "Cleaning up..."
     
-    # Stop mock PLC
-    if [ -f /tmp/mock-plc.pid ]; then
-        kill $(cat /tmp/mock-plc.pid) 2>/dev/null || true
-        rm /tmp/mock-plc.pid
-    fi
-    
     # Stop docker-compose
     docker-compose down
-    
+
     # Delete K8s resources
     kubectl delete -f k8s/sample-plc.yaml 2>/dev/null || true
-    kubectl delete -f k8s/deployment.yaml 2>/dev/null || true
+    kubectl delete -f k8s/mock-plc.yaml 2>/dev/null || true
+    kubectl delete -f k8s/deployment-local.yaml 2>/dev/null || true
     kubectl delete -f k8s/rbac.yaml 2>/dev/null || true
     kubectl delete -f k8s/crd.yaml 2>/dev/null || true
     

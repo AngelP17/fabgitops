@@ -27,27 +27,27 @@ pub async fn start_server(
     state: Arc<Mutex<PLCState>>,
 ) -> anyhow::Result<()> {
     let socket_addr: SocketAddr = format!("{}:{}", bind_addr, port).parse()?;
-    
+
     info!("Starting mock PLC server on {}", socket_addr);
-    
+
     let listener = TcpListener::bind(socket_addr).await?;
     let server = Server::new(listener);
-    
+
     let new_service = |_socket_addr| {
         let state = state.clone();
         Ok(Some(ModbusService { state }))
     };
-    
+
     let on_connected = |stream, socket_addr| async move {
         accept_tcp_connection(stream, socket_addr, new_service)
     };
-    
+
     let on_process_error = |err| {
         error!("Server error: {}", err);
     };
-    
+
     server.serve(&on_connected, on_process_error).await?;
-    
+
     Ok(())
 }
 
@@ -62,10 +62,10 @@ impl tokio_modbus::server::Service for ModbusService {
     type Response = Response;
     type Error = std::io::Error;
     type Future = std::future::Ready<std::result::Result<Self::Response, Self::Error>>;
-    
+
     fn call(&self, req: Self::Request) -> Self::Future {
         use tokio_modbus::bytes::Bytes;
-        
+
         let response = match req {
             Request::ReadHoldingRegisters(addr, count) => {
                 if let Ok(state) = self.state.lock() {
@@ -93,7 +93,7 @@ impl tokio_modbus::server::Service for ModbusService {
             }
             _ => Response::Custom(0x80, Bytes::from_static(&[0x01])), // Illegal function
         };
-        
+
         std::future::ready(Ok(response))
     }
 }

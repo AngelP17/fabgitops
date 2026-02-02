@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.75-slim-bookworm AS builder
+FROM rust:bookworm AS builder
 
 WORKDIR /build
 
@@ -13,6 +13,10 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml ./
 COPY crates/mock-plc/Cargo.toml ./crates/mock-plc/
 COPY crates/mock-plc/src ./crates/mock-plc/src/
+COPY crates/operator/Cargo.toml ./crates/operator/
+COPY crates/operator/src ./crates/operator/src/
+COPY crates/fabctl/Cargo.toml ./crates/fabctl/
+COPY crates/fabctl/src ./crates/fabctl/src/
 
 # Build the mock-plc
 RUN cargo build --release -p mock-plc

@@ -1,5 +1,9 @@
 # Default values for fabgitops
 
+# CRD configuration
+crd:
+  create: true
+
 replicaCount: 1
 
 image:

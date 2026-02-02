@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-plc
+  labels:
+    app: mock-plc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-plc
+  template:
+    metadata:
+      labels:
+        app: mock-plc
+    spec:
+      containers:
+      - name: mock-plc
+        image: fabgitops-mock-plc:latest
+        imagePullPolicy: Never
+        args:
+          - --bind=0.0.0.0
+          - --port=5502
+          - --value=2500
+          - --register=4001
+          - --chaos
+          - --chaos-interval=10
+        ports:
+        - containerPort: 5502
+          name: modbus
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-plc
+  labels:
+    app: mock-plc
+spec:
+  type: ClusterIP
+  selector:
+    app: mock-plc
+  ports:
+  - port: 5502
+    targetPort: 5502
+    name: modbus
+    protocol: TCP

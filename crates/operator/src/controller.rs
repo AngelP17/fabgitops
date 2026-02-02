@@ -23,18 +23,21 @@ pub async fn reconcile(plc: Arc<IndustrialPLC>, ctx: Arc<Context>) -> Result<Act
     let start = Instant::now();
     let name = plc.name_any();
     let namespace = plc.namespace().unwrap_or_default();
-    
+
     info!("Reconciling PLC: {}/{}", namespace, name);
-    
+
     let api: Api<IndustrialPLC> = Api::namespaced(ctx.client.clone(), &namespace);
     let mut status = IndustrialPLCStatus::new();
-    
+
+    // Update managed PLCs count
+    let all_plcs = Api::<IndustrialPLC>::all(ctx.client.clone());
+    if let Ok(plc_list) = all_plcs.list(&Default::default()).await {
+        ctx.metrics.set_managed_plcs(plc_list.items.len() as i64);
+    }
+
     // Create PLC client
-    let plc_client = PLCClient::new(
-        &plc.spec.device_address,
-        plc.spec.port
-    );
-    
+    let plc_client = PLCClient::new(&plc.spec.device_address, plc.spec.port);
+
     // Health check
     match plc_client.health_check().await {
         Ok(true) => {
@@ -48,7 +51,7 @@ pub async fn reconcile(plc: Arc<IndustrialPLC>, ctx: Arc<Context>) -> Result<Act
             return Ok(Action::requeue(Duration::from_secs(10)));
         }
     }
-    
+
     // Read current value from PLC
     match plc_client.read_register(plc.spec.target_register).await {
         Ok(current_value) => {
@@ -57,13 +60,13 @@ pub async fn reconcile(plc: Arc<IndustrialPLC>, ctx: Arc<Context>) -> Result<Act
                 "Register {} current value: {}, desired: {}",
                 plc.spec.target_register, current_value, plc.spec.target_value
             );
-            
+
             // Check for drift
             if current_value != plc.spec.target_value {
                 // Drift detected!
                 ctx.metrics.record_drift();
                 status.set_drift(plc.spec.target_value, current_value);
-                
+
                 // Emit event
                 let recorder = Recorder::new(
                     ctx.client.clone(),
@@ -76,21 +79,19 @@ pub async fn reconcile(plc: Arc<IndustrialPLC>, ctx: Arc<Context>) -> Result<Act
                         reason: "DriftDetected".to_string(),
                         note: Some(format!(
                             "Register {} drifted: desired={}, actual={}",
-                            plc.spec.target_register,
-                            plc.spec.target_value,
-                            current_value
+                            plc.spec.target_register, plc.spec.target_value, current_value
                         )),
                         action: "Reconcile".to_string(),
                         secondary: None,
                     })
                     .await
                     .ok();
-                
+
                 // Auto-correct if enabled
                 if plc.spec.auto_correct {
                     status.set_correcting();
                     update_status(&api, &name, status.clone()).await?;
-                    
+
                     match plc_client
                         .write_register(plc.spec.target_register, plc.spec.target_value)
                         .await
@@ -98,22 +99,21 @@ pub async fn reconcile(plc: Arc<IndustrialPLC>, ctx: Arc<Context>) -> Result<Act
                         Ok(()) => {
                             ctx.metrics.record_correction();
                             status.set_corrected(plc.spec.target_value);
-                            
+
                             recorder
                                 .publish(Event {
                                     type_: EventType::Normal,
                                     reason: "DriftCorrected".to_string(),
                                     note: Some(format!(
                                         "Register {} corrected to {}",
-                                        plc.spec.target_register,
-                                        plc.spec.target_value
+                                        plc.spec.target_register, plc.spec.target_value
                                     )),
                                     action: "Reconcile".to_string(),
                                     secondary: None,
                                 })
                                 .await
                                 .ok();
-                            
+
                             info!(
                                 "Corrected register {} to {}",
                                 plc.spec.target_register, plc.spec.target_value
@@ -135,16 +135,18 @@ pub async fn reconcile(plc: Arc<IndustrialPLC>, ctx: Arc<Context>) -> Result<Act
             error!("Failed to read register: {}", e);
         }
     }
-    
+
     // Update status
     update_status(&api, &name, status).await?;
-    
+
     // Record metrics
     let duration = start.elapsed().as_secs_f64();
     ctx.metrics.reconciliation_duration.set(duration);
-    
+
     // Requeue based on poll interval
-    Ok(Action::requeue(Duration::from_secs(plc.spec.poll_interval_secs)))
+    Ok(Action::requeue(Duration::from_secs(
+        plc.spec.poll_interval_secs,
+    )))
 }
 
 /// Update the status subresource
@@ -156,11 +158,11 @@ async fn update_status(
     let patch = Patch::Merge(serde_json::json!({
         "status": status
     }));
-    
+
     api.patch_status(name, &PatchParams::default(), &patch)
         .await
         .map_err(Error::KubeError)?;
-    
+
     Ok(())
 }
 
@@ -174,7 +176,7 @@ pub fn error_policy(_plc: Arc<IndustrialPLC>, error: &Error, _ctx: Arc<Context>)
 pub enum Error {
     #[error("Kubernetes error: {0}")]
     KubeError(#[from] kube::Error),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 }

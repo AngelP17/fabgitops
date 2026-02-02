@@ -1,14 +1,14 @@
 apiVersion: fabgitops.io/v1
 kind: IndustrialPLC
 metadata:
-  name: production-line-1
+  name: plc-line-1
   namespace: default
   labels:
     app: fabgitops
     line: "1"
 spec:
-  deviceAddress: "192.168.1.100"
-  port: 502
+  deviceAddress: "mock-plc.default.svc.cluster.local"
+  port: 5502
   targetRegister: 4001
   targetValue: 2500
   pollIntervalSecs: 5
@@ -21,16 +21,16 @@ spec:
 apiVersion: fabgitops.io/v1
 kind: IndustrialPLC
 metadata:
-  name: production-line-2
+  name: plc-line-2
   namespace: default
   labels:
     app: fabgitops
     line: "2"
 spec:
-  deviceAddress: "192.168.1.101"
-  port: 502
+  deviceAddress: "mock-plc.default.svc.cluster.local"
+  port: 5502
   targetRegister: 4001
-  targetValue: 3000
+  targetValue: 2500
   pollIntervalSecs: 10
   autoCorrect: true
   tags:

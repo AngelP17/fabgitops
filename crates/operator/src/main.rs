@@ -23,17 +23,17 @@ async fn main() -> anyhow::Result<()> {
         .with_max_level(Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
-    
+
     info!("Starting FabGitOps Operator...");
-    
+
     // Initialize Kubernetes client
     let client = Client::try_default().await?;
     info!("Connected to Kubernetes cluster");
-    
+
     // Initialize metrics
     let metrics = Arc::new(OperatorMetrics::new()?);
     info!("Metrics initialized");
-    
+
     // Create context for controller
     let ctx = Arc::new(Context {
         client: client.clone(),
@@ -43,15 +43,15 @@ async fn main() -> anyhow::Result<()> {
             instance: std::env::var("HOSTNAME").ok(),
         },
     });
-    
+
     // Start metrics server
     let metrics_router = Router::new()
         .route("/metrics", get(metrics_handler))
         .route("/health", get(health_handler));
-    
+
     let metrics_addr: SocketAddr = "0.0.0.0:8080".parse()?;
     let metrics_clone = metrics.clone();
-    
+
     tokio::spawn(async move {
         info!("Starting metrics server on {}", metrics_addr);
         let app = metrics_router.layer(axum::Extension(metrics_clone));
@@ -62,16 +62,16 @@ async fn main() -> anyhow::Result<()> {
         .await
         .unwrap();
     });
-    
+
     // Start controller
     info!("Starting IndustrialPLC controller...");
     let plcs = Api::<IndustrialPLC>::all(client.clone());
-    
+
     // Ensure CRD exists
     if let Err(e) = plcs.list(&Default::default()).await {
         info!("CRD may not exist yet: {}", e);
     }
-    
+
     kube::runtime::Controller::new(plcs, Default::default())
         .run(reconcile, error_policy, ctx)
         .for_each(|res| async move {
@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
             }
         })
         .await;
-    
+
     Ok(())
 }
 
@@ -91,7 +91,9 @@ async fn metrics_handler(
 ) -> String {
     let encoder = TextEncoder::new();
     let metric_families = metrics.registry.gather();
-    encoder.encode_to_string(&metric_families).unwrap_or_default()
+    encoder
+        .encode_to_string(&metric_families)
+        .unwrap_or_default()
 }
 
 /// Handler for /health endpoint
