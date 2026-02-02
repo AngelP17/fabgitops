@@ -3,7 +3,7 @@
 > **The Infrastructure Layer** of the Industrial Cloud Stack  
 > A Kubernetes Operator for managing Industrial PLCs with GitOps principles
 
-[![CI/CD](https://github.com/yourusername/fabgitops/actions/workflows/ci.yaml/badge.svg)](https://github.com/yourusername/fabgitops/actions/workflows/ci.yaml)
+[![Local CI](https://img.shields.io/badge/CI-Local%20Script-blue)](./ci-local.sh)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
@@ -19,33 +19,39 @@ FabGitOps is a production-ready Kubernetes operator built in Rust that manages i
 - 🎛️ **CLI Tool (`fabctl`)** - Developer-friendly terminal interface
 - 🌀 **Chaos Simulator** - Test drift detection with simulated hardware failures
 - ☸️ **Helm Charts** - Production-ready Kubernetes deployment
-- 🔄 **CI/CD Pipeline** - GitHub Actions with E2E testing
+- 🔄 **Local CI/CD** - Comprehensive local CI script with lint, test, build, and E2E testing
 - 🔒 **Security Hardened** - Non-root containers, vulnerability scanning
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Kubernetes Cluster                          │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │   fabctl     │    │   Operator   │    │   CRD        │      │
-│  │   (CLI)      │◄──►│   (Rust)     │◄──►│ IndustrialPLC│      │
-│  └──────────────┘    └──────┬───────┘    └──────────────┘      │
-│                             │                                   │
-│                             ▼                                   │
-│                      ┌──────────────┐                          │
-│                      │  /metrics    │◄── Prometheus/Grafana    │
-│                      └──────────────┘                          │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼ Modbus TCP
-┌─────────────────────────────────────────────────────────────────┐
-│                     Industrial Network                          │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │   PLC #1     │    │   PLC #2     │    │  mock-plc    │      │
-│  │  (Physical)  │    │  (Physical)  │    │  (Testing)   │      │
-│  └──────────────┘    └──────────────┘    └──────────────┘      │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "Kubernetes Cluster"
+        CLI[fabctl CLI]
+        OP[FabGitOps Operator<br/>Rust]
+        CRD[IndustrialPLC CRD]
+        MET[Metrics Server<br/>:8080/metrics]
+    end
+    
+    subgraph "Observability"
+        PROM[Prometheus]
+        GRAF[Grafana]
+    end
+    
+    subgraph "Industrial Network"
+        PLC1[PLC #1<br/>Physical]
+        PLC2[PLC #2<br/>Physical]
+        MOCK[Mock PLC<br/>Testing]
+    end
+    
+    CLI <-->|kubectl| OP
+    OP <-->|Watch/Reconcile| CRD
+    OP -->|Expose| MET
+    MET -->|Scrape| PROM
+    PROM -->|Visualize| GRAF
+    OP <-->|Modbus TCP| PLC1
+    OP <-->|Modbus TCP| PLC2
+    OP <-->|Modbus TCP| MOCK
 ```
 
 ## Quick Start
@@ -314,10 +320,11 @@ fabgitops/
 │   ├── crd.yaml                  # Custom Resource Definition
 │   ├── rbac.yaml                 # RBAC permissions
 │   ├── deployment.yaml           # Operator deployment
+│   ├── deployment-local.yaml     # Local development deployment
+│   ├── mock-plc.yaml             # Mock PLC deployment
 │   └── sample-plc.yaml           # Sample PLC resources
 │
-├── .github/workflows/            # CI/CD
-│   └── ci.yaml                   # GitHub Actions workflow
+├── ci-local.sh                   # Local CI/CD script
 │
 ├── docs/
 │   ├── adr/                      # Architecture Decision Records
@@ -359,6 +366,11 @@ docker build -f Dockerfile.operator -t fabgitops-operator:latest .
 docker build -f Dockerfile.mock-plc -t fabgitops-mock-plc:latest .
 ```
 
+Or use the CI script:
+```bash
+./ci-local.sh
+```
+
 ### Running Locally
 
 ```bash
@@ -381,13 +393,29 @@ See [docs/adr/](docs/adr/) for detailed architecture decisions:
 
 ## CI/CD Pipeline
 
-The GitHub Actions workflow includes:
+The project uses a local CI script (`ci-local.sh`) that replicates a full CI/CD pipeline:
 
 1. **Lint & Test** - `cargo fmt`, `cargo clippy`, `cargo test`
-2. **Build & Push** - Docker image to GHCR with multi-tag support
-3. **E2E Test** - Kind cluster with Helm deployment and validation
-4. **Helm Lint** - Chart validation and templating
-5. **Security Scan** - Trivy vulnerability scanning
+2. **Build Images** - Docker images for operator and mock-plc
+3. **Helm Lint** - Chart validation and templating
+4. **Security Scan** - Trivy vulnerability scanning (optional)
+5. **E2E Test** - Kind cluster with Helm deployment and validation (optional)
+
+### Running CI Locally
+
+```bash
+# Run basic checks (lint, test, build, helm)
+./ci-local.sh
+
+# Run with security scan
+./ci-local.sh --security
+
+# Run with E2E tests (requires Kind)
+./ci-local.sh --e2e
+
+# Run all checks
+./ci-local.sh --all
+```
 
 ## Troubleshooting
 

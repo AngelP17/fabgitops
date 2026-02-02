@@ -26,30 +26,31 @@ FabGitOps is a Kubernetes operator that implements GitOps principles for managin
 
 ### High-Level Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Control Plane (Kubernetes)                        │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    FabGitOps Operator                               │   │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │   │
-│  │  │  Controller  │  │   Metrics    │  │   Events     │              │   │
-│  │  │   (Reconcile)│  │  (Prometheus)│  │  (K8s Events)│              │   │
-│  │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘              │   │
-│  │         │                 │                 │                      │   │
-│  │  ┌──────▼─────────────────▼─────────────────▼──────┐              │   │
-│  │  │              PLC Client (Modbus TCP)            │              │   │
-│  │  └──────────────────────┬──────────────────────────┘              │   │
-│  └─────────────────────────┼─────────────────────────────────────────┘   │
-└────────────────────────────┼────────────────────────────────────────────┘
-                             │ Modbus TCP
-                             ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Data Plane (Industrial Network)                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │   PLC #1     │  │   PLC #2     │  │   PLC #N     │  │  Mock PLC    │    │
-│  │  (Physical)  │  │  (Physical)  │  │  (Physical)  │  │  (Testing)   │    │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "Control Plane (Kubernetes)"
+        subgraph "FabGitOps Operator"
+            CTRL[Controller<br/>Reconcile Loop]
+            MET[Metrics<br/>Prometheus]
+            EVT[Events<br/>K8s Events]
+            PLC_CLIENT[PLC Client<br/>Modbus TCP]
+        end
+    end
+    
+    subgraph "Data Plane (Industrial Network)"
+        PLC1[PLC #1<br/>Physical]
+        PLC2[PLC #2<br/>Physical]
+        PLCN[PLC #N<br/>Physical]
+        MOCK[Mock PLC<br/>Testing]
+    end
+    
+    CTRL -->|Control| PLC_CLIENT
+    PLC_CLIENT -->|Metrics| MET
+    CTRL -->|Emit| EVT
+    PLC_CLIENT <-->|Modbus TCP| PLC1
+    PLC_CLIENT <-->|Modbus TCP| PLC2
+    PLC_CLIENT <-->|Modbus TCP| PLCN
+    PLC_CLIENT <-->|Modbus TCP| MOCK
 ```
 
 ## Architecture Components
@@ -109,14 +110,17 @@ status:
 
 #### State Machine
 
-```
-Pending → Connecting → Connected
-                          │
-                          ▼ (drift detected)
-                   DriftDetected → Correcting → Connected
-                          │
-                          ▼ (error)
-                        Failed
+```mermaid
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> Connecting
+    Connecting --> Connected
+    Connected --> DriftDetected : drift detected
+    DriftDetected --> Correcting
+    Correcting --> Connected
+    DriftDetected --> Failed : error
+    Connected --> Failed : error
+    Failed --> Connecting : retry
 ```
 
 ### 3. PLC Client
@@ -132,18 +136,14 @@ The Modbus TCP client handles communication with industrial hardware:
 
 A developer-friendly CLI for interacting with the system:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      fabctl CLI                         │
-├─────────────────────────────────────────────────────────┤
-│  get-status    │  Show Git vs Reality table             │
-│  describe      │  Detailed PLC information              │
-│  sync          │  Trigger manual reconciliation         │
-│  watch         │  Live dashboard with auto-refresh      │
-│  list          │  List all managed PLCs                 │
-│  version       │  Show version information              │
-└─────────────────────────────────────────────────────────┘
-```
+| Command | Description |
+|---------|-------------|
+| `get-status` | Show Git vs Reality table |
+| `describe` | Detailed PLC information |
+| `sync` | Trigger manual reconciliation |
+| `watch` | Live dashboard with auto-refresh |
+| `list` | List all managed PLCs |
+| `version` | Show version information |
 
 ### 5. Mock PLC
 
@@ -157,54 +157,49 @@ A testing tool that simulates industrial PLCs:
 
 ### Normal Operation Flow
 
-```
-1. User applies IndustrialPLC manifest
-   │
-   ▼
-2. Kubernetes stores resource in etcd
-   │
-   ▼
-3. Operator watches and receives event
-   │
-   ▼
-4. Operator connects to PLC
-   │
-   ▼
-5. PLC returns current register value
-   │
-   ▼
-6. Operator compares: current == desired?
-   │
-   ├── Yes → Update status: inSync=true
-   │
-   └── No → Record drift metric
-            Emit warning event
-            If autoCorrect: write desired value
-            Update status: inSync=false → true
-   │
-   ▼
-7. Requeue after pollIntervalSecs
+```mermaid
+flowchart TD
+    A[User applies IndustrialPLC manifest] --> B[Kubernetes stores in etcd]
+    B --> C[Operator watches & receives event]
+    C --> D[Operator connects to PLC]
+    D --> E[PLC returns current value]
+    E --> F{current == desired?}
+    F -->|Yes| G[Update status: inSync=true]
+    F -->|No| H[Record drift metric]
+    H --> I[Emit warning event]
+    I --> J{autoCorrect?}
+    J -->|Yes| K[Write desired value]
+    J -->|No| L[Update status: inSync=false]
+    K --> M[Update status: inSync=true]
+    G --> N[Requeue after pollIntervalSecs]
+    M --> N
+    L --> N
 ```
 
 ### Drift Detection Flow
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Git       │     │   Reality   │     │   Action    │
-│  (Desired)  │     │  (Actual)   │     │  (Operator) │
-├─────────────┤     ├─────────────┤     ├─────────────┤
-│ targetValue │  ≠  │ currentValue│  →  │ 1. Record   │
-│    2500     │     │    2400     │     │    drift    │
-└─────────────┘     └─────────────┘     ├─────────────┤
-                                        │ 2. Emit     │
-                                        │    event    │
-                                        ├─────────────┤
-                                        │ 3. Write    │
-                                        │    2500     │
-                                        ├─────────────┤
-                                        │ 4. Update   │
-                                        │    status   │
-                                        └─────────────┘
+```mermaid
+flowchart LR
+    subgraph Git[Git - Desired]
+        TV[targetValue: 2500]
+    end
+    
+    subgraph Reality[Reality - Actual]
+        CV[currentValue: 2400]
+    end
+    
+    subgraph Action[Operator Action]
+        A1[1. Record drift]
+        A2[2. Emit event]
+        A3[3. Write 2500]
+        A4[4. Update status]
+    end
+    
+    TV -->|≠| CV
+    CV --> A1
+    A1 --> A2
+    A2 --> A3
+    A3 --> A4
 ```
 
 ## Design Patterns
@@ -255,18 +250,17 @@ Different behaviors based on configuration:
 
 The operator exposes metrics via a built-in HTTP server:
 
-```
-┌─────────────────┐
-│   Operator      │
-│  ┌───────────┐  │
-│  │ Controller│  │
-│  └─────┬─────┘  │
-│        │        │
-│  ┌─────▼─────┐  │
-│  │  Metrics  │◄─┼── Prometheus scrapes :8080/metrics
-│  │  Server   │  │
-│  └───────────┘  │
-└─────────────────┘
+```mermaid
+flowchart TB
+    subgraph Operator
+        CTRL[Controller]
+        MET[Metrics Server]
+    end
+    
+    PROM[Prometheus]
+    
+    CTRL -->|Update| MET
+    PROM -->|Scrape :8080/metrics| MET
 ```
 
 ## Security Model
@@ -361,56 +355,79 @@ Pre-configured dashboard showing:
 - Register value trends
 - Reconciliation latency
 
+## CI/CD Pipeline
+
+The project uses a local CI script (`ci-local.sh`) instead of GitHub Actions for greater flexibility and local testing:
+
+### Pipeline Phases
+
+| Phase | Description | Optional |
+|-------|-------------|----------|
+| 1. Prerequisites | Check cargo, docker, helm, kubectl | No |
+| 2. Lint & Test | cargo fmt, clippy, test | No |
+| 3. Build Images | Docker build for operator and mock-plc | No |
+| 4. Helm Validation | helm lint, helm template | No |
+| 5. Security Scan | Trivy vulnerability scan | Yes |
+| 6. E2E Test | Kind cluster, deploy, verify | Yes |
+
+### Usage
+
+```bash
+# Basic checks (phases 1-4)
+./ci-local.sh
+
+# With E2E tests (requires Kind)
+./ci-local.sh --e2e
+
+# With security scan (requires Trivy)
+./ci-local.sh --security
+
+# Run all checks
+./ci-local.sh --all
+```
+
 ## Deployment Architecture
 
 ### Single Cluster
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Kubernetes Cluster                      │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              FabGitOps Operator                     │   │
-│  │              (Deployment: 1 replica)                │   │
-│  └──────────────────────┬──────────────────────────────┘   │
-│                         │                                   │
-│  ┌──────────────────────▼──────────────────────────────┐   │
-│  │              Prometheus/Grafana                     │   │
-│  │              (Docker Compose or In-Cluster)         │   │
-│  └─────────────────────────────────────────────────────┘   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ Modbus TCP
-                    ┌──────┴──────┐
-                    │  Industrial │
-                    │   Network   │
-                    └──────┬──────┘
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-          ┌──────┐   ┌──────┐   ┌──────┐
-          │ PLC1 │   │ PLC2 │   │ PLC3 │
-          └──────┘   └──────┘   └──────┘
+```mermaid
+flowchart TB
+    subgraph K8S[Kubernetes Cluster]
+        OP[FabGitOps Operator<br/>Deployment: 1 replica]
+        OBS[Prometheus/Grafana<br/>Docker Compose or In-Cluster]
+    end
+    
+    subgraph IND[Industrial Network]
+        PLC1[PLC1]
+        PLC2[PLC2]
+        PLC3[PLC3]
+    end
+    
+    OP <-->|Modbus TCP| IND
+    OP --> OBS
 ```
 
 ### Multi-Zone (Production)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Kubernetes Cluster                             │
-│  ┌─────────────────────────┐  ┌─────────────────────────┐                  │
-│  │     Zone A Operator     │  │     Zone B Operator     │                  │
-│  │   (production-line-*)   │  │   (assembly-line-*)     │                  │
-│  └───────────┬─────────────┘  └───────────┬─────────────┘                  │
-└──────────────┼────────────────────────────┼────────────────────────────────┘
-               │                            │
-        ┌──────┴──────┐              ┌──────┴──────┐
-        │  Zone A     │              │  Zone B     │
-        │   Network   │              │   Network   │
-        └──────┬──────┘              └──────┬──────┘
-               │                            │
-        ┌──────┴──────┐              ┌──────┴──────┐
-        ▼             ▼              ▼             ▼
-    ┌────────┐   ┌────────┐     ┌────────┐   ┌────────┐
-    │PLC-A1  │   │PLC-A2  │     │PLC-B1  │   │PLC-B2  │
-    └────────┘   └────────┘     └────────┘   └────────┘
+```mermaid
+flowchart TB
+    subgraph K8S[Kubernetes Cluster]
+        ZA[Zone A Operator<br/>production-line-*]
+        ZB[Zone B Operator<br/>assembly-line-*]
+    end
+    
+    subgraph ZAN[Zone A Network]
+        PLCA1[PLC-A1]
+        PLCA2[PLC-A2]
+    end
+    
+    subgraph ZBN[Zone B Network]
+        PLCB1[PLC-B1]
+        PLCB2[PLC-B2]
+    end
+    
+    ZA --> ZAN
+    ZB --> ZBN
 ```
 
 ## Technology Stack
@@ -435,7 +452,7 @@ Pre-configured dashboard showing:
 | Container Runtime | Docker |
 | Orchestration | Kubernetes |
 | Package Manager | Helm 3 |
-| CI/CD | GitHub Actions |
+| CI/CD | Local CI Script (`ci-local.sh`) |
 | Registry | GitHub Container Registry |
 | Monitoring | Prometheus |
 | Visualization | Grafana |
@@ -447,7 +464,7 @@ Pre-configured dashboard showing:
 | cargo | Build and dependency management |
 | clippy | Linting |
 | rustfmt | Code formatting |
-| kind | Local K8s testing |
+| kind | Local K8s testing for E2E |
 | kubectl | K8s CLI |
 | helm | Package management |
 
